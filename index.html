@@ -2721,8 +2721,7 @@
         <button class="btn-primary" style="background:var(--green);" onclick="showPage('home')"><i class="fas fa-arrow-left"></i> На главную</button>
       </div>
     </div>
-
-    <div id="pageCatering" class="page">
+        <div id="pageCatering" class="page">
       <div class="catering-page">
         <h2><i class="fas fa-truck"></i> Кейтеринг «Магия кофе»</h2>
         <div class="catering-hero-image">
@@ -3098,8 +3097,7 @@
   </div>
 
   <div class="toast-container" id="toastContainer"></div>
-
-  <script>
+    <script>
     (function() {
       var ADMIN_PASSWORD = '4241Magik_life';
       var allItems = [];
@@ -3112,10 +3110,9 @@
       var loginBlocked = false;
       var loginBlockTimer = null;
 
-      // ===== SUPABASE =====
-      var SUPABASE_URL = 'https://nhcetsozgyfpuybsjxqf.supabase.co';
-      var SUPABASE_KEY = 'sb_publishable_VR0zA_fvKIaEE9jwR0eaoA_WddKSv_R';
-      var SUPABASE_TABLE = 'items';
+      // ===== FIREBASE =====
+      var FIREBASE_DOC_URL = 'https://firestore.googleapis.com/v1/projects/magia-coffee/databases/(default)/documents/items/menu';
+      var STORAGE_KEY = 'magia_items_v1';
 
       // ===== КНОПКИ ОБЛАКА =====
       function addCloudButtons() {
@@ -3124,16 +3121,38 @@
           var btnSave = document.createElement('button');
           btnSave.className = 'btn-cloud-save';
           btnSave.style.cssText = 'background:#3498db;color:#fff;padding:10px 20px;border:none;border-radius:40px;cursor:pointer;font-family:Inter,sans-serif;font-weight:600;font-size:0.95rem;';
-          btnSave.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> Сохранить в облако';
+          btnSave.innerHTML = '<i class="fas fa-save"></i> Сохранить';
           btnSave.onclick = saveItemsToCloud;
           adminActions.appendChild(btnSave);
 
           var btnLoad = document.createElement('button');
           btnLoad.className = 'btn-cloud-load';
           btnLoad.style.cssText = 'background:#2ecc71;color:#fff;padding:10px 20px;border:none;border-radius:40px;cursor:pointer;font-family:Inter,sans-serif;font-weight:600;font-size:0.95rem;margin-left:10px;';
-          btnLoad.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Загрузить из облака';
+          btnLoad.innerHTML = '<i class="fas fa-database"></i> Загрузить';
           btnLoad.onclick = loadItemsFromCloud;
           adminActions.appendChild(btnLoad);
+
+          var btnDownload = document.createElement('button');
+          btnDownload.className = 'btn-cloud-download';
+          btnDownload.style.cssText = 'background:#9b59b6;color:#fff;padding:10px 20px;border:none;border-radius:40px;cursor:pointer;font-family:Inter,sans-serif;font-weight:600;font-size:0.95rem;margin-left:10px;';
+          btnDownload.innerHTML = '<i class="fas fa-download"></i> Скачать копию';
+          btnDownload.onclick = downloadBackup;
+          adminActions.appendChild(btnDownload);
+
+          var btnUpload = document.createElement('button');
+          btnUpload.className = 'btn-cloud-upload-file';
+          btnUpload.style.cssText = 'background:#e67e22;color:#fff;padding:10px 20px;border:none;border-radius:40px;cursor:pointer;font-family:Inter,sans-serif;font-weight:600;font-size:0.95rem;margin-left:10px;';
+          btnUpload.innerHTML = '<i class="fas fa-upload"></i> Загрузить из файла';
+          btnUpload.onclick = function() { document.getElementById('backupFileInput').click(); };
+          adminActions.appendChild(btnUpload);
+
+          var fileInput = document.createElement('input');
+          fileInput.type = 'file';
+          fileInput.id = 'backupFileInput';
+          fileInput.accept = '.json,application/json';
+          fileInput.style.display = 'none';
+          fileInput.onchange = uploadBackup;
+          adminActions.appendChild(fileInput);
         }
       }
       setTimeout(addCloudButtons, 500);
@@ -3145,66 +3164,185 @@
         return div.innerHTML;
       }
 
-      // ===== ЗАГРУЗКА ИЗ SUPABASE =====
+      // ===== ЗАГРУЗКА ИЗ FIREBASE =====
       function loadItemsFromCloud() {
-        showToast('☁️ Загрузка товаров из облака...', 'fa-cloud');
-        fetch(SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?id=eq.1&select=data', {
-          headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': 'Bearer ' + SUPABASE_KEY
+        showToast('☁️ Загрузка товаров...', 'fa-cloud');
+        try {
+          var cached = localStorage.getItem(STORAGE_KEY);
+          if (cached) {
+            var parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              allItems = parsed;
+              renderAdminItems();
+              renderAll();
+              updateGameSelect();
+            }
           }
-        })
-        .then(function(response) {
-          if (!response.ok) throw new Error('Ошибка загрузки');
-          return response.json();
-        })
-        .then(function(rows) {
-          var cloudItems = (rows && rows.length > 0 && rows[0].data && rows[0].data.items) ? rows[0].data.items : [];
-          if (cloudItems.length > 0) {
-            allItems = cloudItems;
-            renderAdminItems();
-            renderAll();
-            updateGameSelect();
-            showToast('✅ Товары загружены из облака! (' + cloudItems.length + ' шт.)', 'fa-cloud');
-          } else {
-            showToast('ℹ️ В облаке пусто — используем стандартный список', 'fa-info-circle');
-          }
-        })
-        .catch(function(error) {
-          console.log('Ошибка загрузки из Supabase:', error);
-          showToast('⚠️ Облако недоступно — используем стандартный список', 'fa-exclamation-triangle');
-        });
+        } catch(e) { console.log('localStorage error:', e); }
+
+        fetch(FIREBASE_DOC_URL)
+          .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+          })
+          .then(function(data) {
+            if (data && data.fields && data.fields.data && data.fields.data.mapValue && data.fields.data.mapValue.fields && data.fields.data.mapValue.fields.items) {
+              var cloudItems = data.fields.data.mapValue.fields.items.arrayValue.values || [];
+              var items = [];
+              for (var i = 0; i < cloudItems.length; i++) {
+                var item = parseFirestoreItem(cloudItems[i]);
+                if (item && item.id) items.push(item);
+              }
+              if (items.length > 0) {
+                allItems = items;
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+                renderAdminItems();
+                renderAll();
+                updateGameSelect();
+                showToast('✅ Загружено из облака (' + items.length + ' шт.)', 'fa-cloud');
+                return;
+              }
+            }
+            showToast('ℹ️ В облаке пусто — стандартный список', 'fa-info-circle');
+          })
+          .catch(function(error) {
+            console.log('Firebase error:', error);
+            showToast('⚠️ Облако недоступно — работаем локально', 'fa-exclamation-triangle');
+          });
       }
 
-      // ===== СОХРАНЕНИЕ В SUPABASE =====
+      function parseFirestoreItem(fsItem) {
+        try {
+          var fields = fsItem.mapValue ? fsItem.mapValue.fields : null;
+          if (!fields) return null;
+          var item = {};
+          for (var key in fields) {
+            var val = fields[key];
+            if (val.stringValue !== undefined) item[key] = val.stringValue;
+            else if (val.integerValue !== undefined) item[key] = parseInt(val.integerValue);
+            else if (val.doubleValue !== undefined) item[key] = parseFloat(val.doubleValue);
+            else if (val.arrayValue !== undefined) {
+              item[key] = [];
+              var arr = val.arrayValue.values || [];
+              for (var i = 0; i < arr.length; i++) {
+                var sub = parseFirestoreItem(arr[i]);
+                if (sub) item[key].push(sub);
+              }
+            }
+          }
+          return item;
+        } catch(e) {
+          console.log('parseFirestoreItem error:', e);
+          return null;
+        }
+      }
+
+      function toFirestoreFormat(items) {
+        var values = [];
+        for (var i = 0; i < items.length; i++) {
+          values.push(itemToFirestore(items[i]));
+        }
+        return {
+          mapValue: {
+            fields: {
+              items: { arrayValue: { values: values } }
+            }
+          }
+        };
+      }
+
+      function itemToFirestore(item) {
+        var fields = {};
+        for (var key in item) {
+          var val = item[key];
+          if (val === null || val === undefined) continue;
+          if (typeof val === 'string') fields[key] = { stringValue: val };
+          else if (typeof val === 'number') {
+            if (Number.isInteger(val)) fields[key] = { integerValue: String(val) };
+            else fields[key] = { doubleValue: val };
+          }
+          else if (Array.isArray(val)) {
+            var arr = [];
+            for (var i = 0; i < val.length; i++) arr.push(itemToFirestore(val[i]));
+            fields[key] = { arrayValue: { values: arr } };
+          }
+        }
+        return { mapValue: { fields: fields } };
+      }
+
+      // ===== СОХРАНЕНИЕ В FIREBASE =====
       function saveItemsToCloud() {
         if (!allItems || allItems.length === 0) {
           showToast('⚠️ Нет товаров для сохранения!', 'fa-exclamation-triangle');
           return;
         }
-        var data = { items: allItems };
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(allItems)); } catch(e) {}
         showToast('☁️ Сохранение в облако...', 'fa-cloud-upload-alt');
-        fetch(SUPABASE_URL + '/rest/v1/' + SUPABASE_TABLE + '?id=eq.1', {
+        var firestoreData = toFirestoreFormat(allItems);
+        fetch(FIREBASE_DOC_URL, {
           method: 'PATCH',
-          headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': 'Bearer ' + SUPABASE_KEY,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=minimal'
-          },
-          body: JSON.stringify({ data: data, updated_at: new Date().toISOString() })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: { data: firestoreData } })
         })
-        .then(function(response) {
-          if (!response.ok) throw new Error('Ошибка сохранения');
-          return response;
+        .then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
         })
         .then(function() {
-          showToast('✅ Товары сохранены в облако! (' + allItems.length + ' шт.)', 'fa-cloud-upload-alt');
+          showToast('✅ Сохранено в облако! (' + allItems.length + ' шт.)', 'fa-cloud-upload-alt');
         })
         .catch(function(error) {
-          showToast('❌ Ошибка сохранения!', 'fa-exclamation-circle');
-          console.log(error);
+          console.log('saveItemsToCloud error:', error);
+          showToast('⚠️ Облако недоступно — сохранено локально', 'fa-exclamation-triangle');
         });
+      }
+
+      // ===== СКАЧАТЬ РЕЗЕРВНУЮ КОПИЮ =====
+      function downloadBackup() {
+        if (!allItems || allItems.length === 0) {
+          showToast('⚠️ Нечего скачивать!', 'fa-exclamation-triangle');
+          return;
+        }
+        var dataStr = JSON.stringify(allItems, null, 2);
+        var blob = new Blob([dataStr], { type: 'application/json' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        var date = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = 'magia-cofe-backup-' + date + '.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('⬇️ Резервная копия скачана!', 'fa-download');
+      }
+
+      // ===== ЗАГРУЗИТЬ ИЗ ФАЙЛА =====
+      function uploadBackup(event) {
+        var file = event.target.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          try {
+            var parsed = JSON.parse(e.target.result);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              if (confirm('Загрузить ' + parsed.length + ' товаров? Текущие будут заменены.')) {
+                allItems = parsed;
+                saveItemsToCloud();
+                renderAdminItems();
+                renderAll();
+                updateGameSelect();
+                showToast('✅ Загружено ' + parsed.length + ' товаров!', 'fa-upload');
+              }
+            } else {
+              showToast('❌ Неверный формат файла!', 'fa-exclamation-circle');
+            }
+          } catch(err) {
+            showToast('❌ Ошибка чтения файла!', 'fa-exclamation-circle');
+          }
+        };
+        reader.readAsText(file);
+        event.target.value = '';
       }
 
       function loadItems() {
@@ -3383,8 +3521,6 @@
             div.innerHTML = '<input type="text" placeholder="Название" value="' + escapeHtml(item.sizes[i].name) + '" /><input type="number" placeholder="Цена" value="' + item.sizes[i].price + '" /><button type="button" class="remove-size-btn" onclick="removeSize(this)"><i class="fas fa-times"></i></button>';
             container.appendChild(div);
           }
-        } else {
-          container.innerHTML = '';
         }
         toggleFields();
         document.getElementById('adminModal').classList.add('open');
@@ -3537,8 +3673,7 @@
       var cart = [];
       var currentCategory = 'all';
       var searchQuery = '';
-
-      var pageHome = document.getElementById('pageHome');
+            var pageHome = document.getElementById('pageHome');
       var pageMenu = document.getElementById('pageMenu');
       var pageCatering = document.getElementById('pageCatering');
       var pageMasterclass = document.getElementById('pageMasterclass');
